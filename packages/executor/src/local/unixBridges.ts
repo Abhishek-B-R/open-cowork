@@ -190,16 +190,22 @@ export class DarwinBridge extends ShellBridge {
     }
   }
 
-  async scroll(
-    direction: ScrollDirection,
-    amount: number,
-    _x?: number,
-    _y?: number,
-  ): Promise<void> {
-    const map: Record<ScrollDirection, string> = { up: '+', down: '-', left: '+', right: '-' };
-    const axis = direction === 'left' || direction === 'right' ? 'h' : 'v';
-    void axis;
-    await exec('cliclick', [`w:${map[direction]}${amount * 5}`]);
+  async scroll(direction: ScrollDirection, amount: number, x?: number, y?: number): Promise<void> {
+    if (x !== undefined && y !== undefined) await this.moveMouse(x, y);
+    // cliclick has no scroll command (`w:` is its wait), so post a line-unit
+    // scroll-wheel event through CoreGraphics instead. Positive axis 1 scrolls
+    // up, positive axis 2 scrolls left. CGEventCreateScrollWheelEvent2 is the
+    // non-variadic form (macOS 13+); the variadic one drops axis 2 from JXA.
+    const n = Math.trunc(Number(amount)) || 0;
+    const dy = direction === 'up' ? n : direction === 'down' ? -n : 0;
+    const dx = direction === 'left' ? n : direction === 'right' ? -n : 0;
+    await exec('osascript', [
+      '-l',
+      'JavaScript',
+      '-e',
+      `ObjC.import('CoreGraphics'); $.CGEventPost($.kCGHIDEventTap, ` +
+        `$.CGEventCreateScrollWheelEvent2(null, $.kCGScrollEventUnitLine, 2, ${dy}, ${dx}, 0));`,
+    ]);
   }
 }
 

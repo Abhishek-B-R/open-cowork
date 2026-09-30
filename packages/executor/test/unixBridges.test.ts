@@ -228,20 +228,33 @@ describe('DarwinBridge command construction', () => {
     ]);
   });
 
-  it('scroll up → cliclick w:+amount*5', async () => {
+  /** The CoreGraphics call a scroll posts, as (axis 1, axis 2) line deltas. */
+  const wheel = (dy: number, dx: number) =>
+    `ObjC.import('CoreGraphics'); $.CGEventPost($.kCGHIDEventTap, ` +
+    `$.CGEventCreateScrollWheelEvent2(null, $.kCGScrollEventUnitLine, 2, ${dy}, ${dx}, 0));`;
+
+  it('scroll posts a scroll-wheel event (cliclick w: is a wait, not a scroll)', async () => {
     await bridge.scroll('up', 3);
-    expect(onlyCall()).toEqual({ cmd: 'cliclick', args: ['w:+15'] });
+    expect(onlyCall()).toEqual({
+      cmd: 'osascript',
+      args: ['-l', 'JavaScript', '-e', wheel(3, 0)],
+    });
+    expect(h.calls.some((c) => c.cmd === 'cliclick')).toBe(false);
   });
 
-  it('scroll down → cliclick w:-amount*5', async () => {
+  it('scroll maps down/left/right onto the wheel axes', async () => {
     await bridge.scroll('down', 2);
-    expect(onlyCall()).toEqual({ cmd: 'cliclick', args: ['w:-10'] });
+    await bridge.scroll('left', 1);
+    await bridge.scroll('right', 4);
+    expect(h.calls.map((c) => c.args[3])).toEqual([wheel(-2, 0), wheel(0, 1), wheel(0, -4)]);
   });
 
-  it('scroll left/right also use the +/- map', async () => {
-    await bridge.scroll('left', 1);
-    await bridge.scroll('right', 1);
-    expect(h.calls.map((c) => c.args[0])).toEqual(['w:+5', 'w:-5']);
+  it('scroll with coordinates moves the mouse there first', async () => {
+    await bridge.scroll('down', 1, 50, 60);
+    expect(h.calls).toEqual([
+      { cmd: 'cliclick', args: ['m:50,60'] },
+      { cmd: 'osascript', args: ['-l', 'JavaScript', '-e', wheel(-1, 0)] },
+    ]);
   });
 
   it('screenSize parses osascript Finder bounds → {width,height}', async () => {
@@ -482,6 +495,11 @@ describe('region targeting — capture + input offset (multi-monitor fix)', () =
     it('drag endpoints are both offset', async () => {
       await bridge.drag(0, 0, 100, 50, 'left');
       expect(onlyCall().args).toEqual(['dd:1920,0', 'du:2020,50']);
+    });
+
+    it('scroll target point is offset', async () => {
+      await bridge.scroll('down', 1, 10, 20);
+      expect(h.calls[0]).toEqual({ cmd: 'cliclick', args: ['m:1930,20'] });
     });
   });
 
